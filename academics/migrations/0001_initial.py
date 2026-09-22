@@ -46,9 +46,11 @@ class Migration(migrations.Migration):
                 ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
                 ('title', models.CharField(max_length=255)),
                 ('content', models.TextField()),
+                ('content_blocks', models.JSONField(blank=True, default=list)),
                 ('important_notes', models.TextField(blank=True)),
                 ('vvip_questions', models.TextField(blank=True)),
                 ('image', models.ImageField(blank=True, null=True, upload_to='notes/images/')),
+                ('source_file', models.FileField(blank=True, null=True, upload_to='notes/sources/%Y/%m/')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('chapter', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='notes', to='academics.chapter')),
@@ -75,6 +77,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name='chapter',
-            unique_together={('subject', 'chapter_name')},
+            unique_together={('subject', 'chapter_name'), ('subject', 'chapter_number')},
         ),
     ]

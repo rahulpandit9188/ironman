@@ -51,14 +51,13 @@ class LoginView(APIView):
         email = serializer.validated_data["email"]
         password = serializer.validated_data["password"]
         user = User.objects.filter(email=email).first()
-        if user is None:
+        if (
+            user is None
+            or not user.is_active
+            or not user.check_password(password)
+        ):
             return Response(
-                {"detail": "User not found"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-        if not user.check_password(password):
-            return Response(
-                {"detail": "Invalid password"},
+                {"detail": "Invalid email or password"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 

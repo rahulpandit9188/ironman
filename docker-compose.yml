@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    container_name: ironman-db
+    environment:
+      POSTGRES_DB: ironman_db
+      POSTGRES_USER: ironman_user
+      POSTGRES_PASSWORD: ironman_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ironman_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ironman_pgdata:

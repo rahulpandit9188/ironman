@@ -49,7 +49,10 @@ class Chapter(models.Model):
     description = models.CharField(max_length=500, blank=True)
 
     class Meta:
-        unique_together = ("subject", "chapter_name")
+        unique_together = (
+            ("subject", "chapter_name"),
+            ("subject", "chapter_number"),
+        )
 
     def __str__(self):
         return (
@@ -68,9 +71,15 @@ class Note(models.Model):
     )
     title = models.CharField(max_length=255)
     content = models.TextField()
+    content_blocks = models.JSONField(default=list, blank=True)
     important_notes = models.TextField(blank=True)
     vvip_questions = models.TextField(blank=True)
     image = models.ImageField(upload_to="notes/images/", null=True, blank=True)
+    source_file = models.FileField(
+        upload_to="notes/sources/%Y/%m/",
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,10 +1,12 @@
-from django.shortcuts import get_object_or_404
+from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from authentication.permissions import IsStaffOrReadOnly
 from .models import Chapter, Note, SchoolClass, Subject
 from .pagination import apply_ordering, paginated_response, valid_date, valid_uuid
 from .serializers import (
@@ -15,11 +17,94 @@ from .serializers import (
 )
 
 
+def retrieve_response(model, uuid, serializer_class, message):
+    obj = get_object_or_404(model, uuid=uuid)
+    return Response(
+        {
+            "message": message,
+            "data": serializer_class(obj).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+class BulkCreateAPIView(APIView):
+    permission_classes = [IsStaffOrReadOnly]
+    serializer_class = None
+    item_name = "items"
+    max_items = 100
+
+    def post(self, request):
+        if not isinstance(request.data, list):
+            return Response(
+                {"message": "Request body must be a JSON array."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not request.data:
+            return Response(
+                {"message": "At least one item is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(request.data) > self.max_items:
+            return Response(
+                {"message": f"A maximum of {self.max_items} items is allowed per request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.serializer_class(data=request.data, many=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            return Response(
+                {"message": "Duplicate or conflicting data found. Nothing was saved."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "message": f"{len(serializer.data)} {self.item_name} created successfully",
+                "count": len(serializer.data),
+                "data": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SchoolClassBulkAPIView(BulkCreateAPIView):
+    serializer_class = SchoolClassSerializer
+    item_name = "classes"
+
+
+class SubjectBulkAPIView(BulkCreateAPIView):
+    serializer_class = SubjectSerializer
+    item_name = "subjects"
+
+
+class ChapterBulkAPIView(BulkCreateAPIView):
+    serializer_class = ChapterSerializer
+    item_name = "chapters"
+
+
+class NoteBulkAPIView(BulkCreateAPIView):
+    serializer_class = NoteSerializer
+    item_name = "notes"
+
+
 class SchoolClassAPIView(APIView):
+    permission_classes = [IsStaffOrReadOnly]
 
-    def get(self, request):
+    def get(self, request, uuid=None):
+        if uuid:
+            return retrieve_response(
+                SchoolClass,
+                uuid,
+                SchoolClassSerializer,
+                "Class fetched successfully",
+            )
+
         school_classes = SchoolClass.objects.all()
-
         class_name = request.query_params.get("class_name")
         medium = request.query_params.get("medium")
         title = request.query_params.get("title")
@@ -45,7 +130,6 @@ class SchoolClassAPIView(APIView):
             {"uuid", "class_name", "title", "medium"},
             "uuid",
         )
-
         return paginated_response(
             school_classes,
             request,
@@ -54,112 +138,46 @@ class SchoolClassAPIView(APIView):
         )
 
     def post(self, request):
-
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        serializer = SchoolClassSerializer(
-            data=request.data
-        )
-
+        serializer = SchoolClassSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-
         return Response(
-            {
-                "message": "Class created successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_201_CREATED
+            {"message": "Class created successfully", "data": serializer.data},
+            status=status.HTTP_201_CREATED,
         )
 
     def put(self, request, uuid):
-
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        school_class = get_object_or_404(
-            SchoolClass,
-            uuid = uuid
-        )
-        if not school_class:
-            return Response(
-                {"message": "Class not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        serializer = SchoolClassSerializer(
-            school_class,
-            data=request.data
-        )
-
+        school_class = get_object_or_404(SchoolClass, uuid=uuid)
+        serializer = SchoolClassSerializer(school_class, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-
         return Response(
-            {
-                "message": "Class updated successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
+            {"message": "Class updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
         )
 
     def delete(self, request, uuid):
-
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        school_class = get_object_or_404(
-            SchoolClass,
-            uuid=uuid
-        )
-        if not school_class:
-            return Response(
-                {"message": "Class not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
+        school_class = get_object_or_404(SchoolClass, uuid=uuid)
         school_class.delete()
-
         return Response(
-            {
-                "message": "Class deleted successfully",
-                "data": None
-            },
-            status=status.HTTP_200_OK
+            {"message": "Class deleted successfully", "data": None},
+            status=status.HTTP_200_OK,
         )
+
 
 class SubjectAPIView(APIView):
-    def get(self, request):
-        subjects = Subject.objects.select_related("school_class").all()
+    permission_classes = [IsStaffOrReadOnly]
 
+    def get(self, request, uuid=None):
+        if uuid:
+            return retrieve_response(
+                Subject,
+                uuid,
+                SubjectSerializer,
+                "Subject fetched successfully",
+            )
+
+        subjects = Subject.objects.select_related("school_class").all()
         school_class = request.query_params.get("school_class")
         subject_name = request.query_params.get("subject_name")
         title = request.query_params.get("title")
@@ -190,109 +208,63 @@ class SubjectAPIView(APIView):
             {"uuid", "subject_name", "title"},
             "uuid",
         )
-
         return paginated_response(
             subjects,
             request,
             SubjectSerializer,
             "Subjects fetched successfully",
         )
-    
-    def post(self , request):
-        if not request.user.is_authenticated: 
-            return Response(
-                {"message" : "Authentication required"}
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+
+    def post(self, request):
         serializer = SubjectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(
-            {
-                "message": "Subject created successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_201_CREATED
-        )
-    def put(self, request, uuid):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        subject = get_object_or_404(Subject, uuid=uuid)
-        if not subject:
-            return Response(
-                {"message": "Subject not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        serializer = SubjectSerializer(subject, data=request.data)
-        serializer.is_valid(raise_exception=True)   
-        serializer.save()
-        return Response(
-            {
-                "message": "Subject updated successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
+            {"message": "Subject created successfully", "data": serializer.data},
+            status=status.HTTP_201_CREATED,
         )
 
-    def delete(self, request, uuid):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+    def put(self, request, uuid):
         subject = get_object_or_404(Subject, uuid=uuid)
-        subject.delete()
+        serializer = SubjectSerializer(subject, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(
-            {
-                "message": "Subject deleted successfully",
-                "data": None
-            },
-            status=status.HTTP_200_OK
+            {"message": "Subject updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
         )
 
     def patch(self, request, uuid):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
         subject = get_object_or_404(Subject, uuid=uuid)
         serializer = SubjectSerializer(subject, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(
-            {
-                "message": "Subject updated successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
+            {"message": "Subject updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, uuid):
+        subject = get_object_or_404(Subject, uuid=uuid)
+        subject.delete()
+        return Response(
+            {"message": "Subject deleted successfully", "data": None},
+            status=status.HTTP_200_OK,
         )
 
 
 class ChapterAPIView(APIView):
-    def get(self, request):
+    permission_classes = [IsStaffOrReadOnly]
+
+    def get(self, request, uuid=None):
+        if uuid:
+            return retrieve_response(
+                Chapter,
+                uuid,
+                ChapterSerializer,
+                "Chapter fetched successfully",
+            )
+
         chapters = Chapter.objects.select_related("subject").all()
         subject = request.query_params.get("subject")
         chapter_name = request.query_params.get("chapter_name")
@@ -330,7 +302,6 @@ class ChapterAPIView(APIView):
             {"uuid", "chapter_name", "chapter_number", "title"},
             "uuid",
         )
-
         return paginated_response(
             chapters,
             request,
@@ -339,96 +310,55 @@ class ChapterAPIView(APIView):
         )
 
     def post(self, request):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
         serializer = ChapterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(
-            {
-                "message": "Chapter created successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_201_CREATED
+            {"message": "Chapter created successfully", "data": serializer.data},
+            status=status.HTTP_201_CREATED,
         )
-    
+
     def put(self, request, uuid):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
         chapter = get_object_or_404(Chapter, uuid=uuid)
         serializer = ChapterSerializer(chapter, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(
-            {
-                "message": "Chapter updated successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
+            {"message": "Chapter updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
         )
-    
-    def delete(self, request, uuid):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )   
-        chapter = get_object_or_404(Chapter, uuid=uuid)
-        chapter.delete()
-        return Response(
-            {
-                "message": "Chapter deleted successfully",
-                "data": None
-            },
-            status=status.HTTP_200_OK
-        )
-    
+
     def patch(self, request, uuid):
-        if not request.user.is_authenticated:
-            return Response(
-                {"message": "Authentication required"},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        if not request.user.is_staff:
-            return Response(
-                {"message": "Permission denied"},
-                status=status.HTTP_403_FORBIDDEN
-            )
         chapter = get_object_or_404(Chapter, uuid=uuid)
         serializer = ChapterSerializer(chapter, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(
-            {
-                "message": "Chapter updated successfully",
-                "data": serializer.data
-            },
-            status=status.HTTP_200_OK
+            {"message": "Chapter updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
         )
 
+    def delete(self, request, uuid):
+        chapter = get_object_or_404(Chapter, uuid=uuid)
+        chapter.delete()
+        return Response(
+            {"message": "Chapter deleted successfully", "data": None},
+            status=status.HTTP_200_OK,
+        )
+
+
 class NoteAPIView(APIView):
-    def get(self, request):
+    permission_classes = [IsStaffOrReadOnly]
+
+    def get(self, request, uuid=None):
+        if uuid:
+            return retrieve_response(
+                Note,
+                uuid,
+                NoteSerializer,
+                "Note fetched successfully",
+            )
+
         notes = Note.objects.select_related(
             "chapter",
             "chapter__subject",
@@ -495,11 +425,46 @@ class NoteAPIView(APIView):
             {"uuid", "title", "created_at", "updated_at"},
             "uuid",
         )
-
         return paginated_response(
             notes,
             request,
             NoteSerializer,
             "Notes fetched successfully",
         )
-    
+
+    def post(self, request):
+        serializer = NoteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"message": "Note created successfully", "data": serializer.data},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def put(self, request, uuid):
+        note = get_object_or_404(Note, uuid=uuid)
+        serializer = NoteSerializer(note, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"message": "Note updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request, uuid):
+        note = get_object_or_404(Note, uuid=uuid)
+        serializer = NoteSerializer(note, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"message": "Note updated successfully", "data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, uuid):
+        note = get_object_or_404(Note, uuid=uuid)
+        note.delete()
+        return Response(
+            {"message": "Note deleted successfully", "data": None},
+            status=status.HTTP_200_OK,
+        )
