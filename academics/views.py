@@ -363,6 +363,7 @@ class NoteAPIView(APIView):
             "chapter",
             "chapter__subject",
             "chapter__subject__school_class",
+            "topic",
         ).all()
 
         school_class = request.query_params.get("school_class")
@@ -418,6 +419,11 @@ class NoteAPIView(APIView):
                 | Q(vvip_questions__icontains=search)
                 | Q(chapter__chapter_name__icontains=search)
             )
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            notes = notes.filter(status=status_filter)
+        elif not (request.user.is_authenticated and request.user.is_staff):
+            notes = notes.filter(status="published")
 
         notes = apply_ordering(
             notes,

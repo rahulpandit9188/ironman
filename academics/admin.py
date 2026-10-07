@@ -1,6 +1,16 @@
 from django.contrib import admin
 
-from .models import Chapter, Note, SchoolClass, Subject
+from .models import (
+    Bookmark,
+    Chapter,
+    Note,
+    PracticeQuestion,
+    ScheduledTest,
+    SchoolClass,
+    Subject,
+    Topic,
+    UserProgress,
+)
 
 
 @admin.register(SchoolClass)
@@ -48,7 +58,7 @@ class ChapterAdmin(admin.ModelAdmin):
 
 @admin.register(Note)
 class NoteAdmin(admin.ModelAdmin):
-    list_display = ("title", "chapter", "subject", "school_class", "updated_at")
+    list_display = ("title", "status", "chapter", "subject", "school_class", "updated_at")
     search_fields = (
         "title",
         "content",
@@ -75,3 +85,42 @@ class NoteAdmin(admin.ModelAdmin):
     )
     def school_class(self, obj):
         return obj.chapter.subject.school_class
+
+
+@admin.register(Topic)
+class TopicAdmin(admin.ModelAdmin):
+    list_display = ("title", "chapter", "status", "sort_order")
+    search_fields = ("title", "chapter__chapter_name", "chapter__subject__subject_name")
+    list_filter = ("status", "chapter__subject")
+    autocomplete_fields = ("chapter",)
+    readonly_fields = ("uuid", "created_at", "updated_at")
+
+
+@admin.register(PracticeQuestion)
+class PracticeQuestionAdmin(admin.ModelAdmin):
+    list_display = ("prompt", "correct_option", "difficulty", "status", "chapter")
+    search_fields = ("prompt", "answer")
+    list_filter = ("difficulty", "status")
+    autocomplete_fields = ("chapter", "topic")
+    readonly_fields = ("uuid",)
+
+
+@admin.register(Bookmark)
+class BookmarkAdmin(admin.ModelAdmin):
+    list_display = ("title", "target_type", "user", "created_at")
+    search_fields = ("title", "user__email")
+    list_filter = ("target_type",)
+
+
+@admin.register(UserProgress)
+class UserProgressAdmin(admin.ModelAdmin):
+    list_display = ("user", "topic", "note", "completed", "viewed_at")
+    list_filter = ("completed",)
+
+
+@admin.register(ScheduledTest)
+class ScheduledTestAdmin(admin.ModelAdmin):
+    list_display = ("title", "subject", "scheduled_on", "status")
+    list_filter = ("status", "scheduled_on")
+    search_fields = ("title", "subject__subject_name")
+    readonly_fields = ("uuid",)
